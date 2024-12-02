@@ -15,3 +15,5 @@ __pycache__/
 # Ignorar configuraciones específicas de IDEs/editores (opcional)
 .vscode/
 .idea/
+
+Resume.csv
