@@ -2,103 +2,154 @@ import sys
 import os
 import time
 
-# Importamos las funciones necesarias para conectar y cerrar la base de datos.
 from database import connect_db, close_db
-
-# Importamos las funciones principales del archivo utils.py que vamos a usar.
 from utils import (
-    load_dataset_into_db,  # Para cargar datos desde un CSV a la base de datos.
-    build_or_load_vector_index,  # Para construir o cargar el índice FAISS.
-    embed_and_search_in_faiss  # Para buscar en el índice FAISS usando embeddings.
+    load_dataset_into_db,
+    build_or_load_vector_index,
+    embed_and_search_in_faiss,
+    rerank_with_deepseek
 )
+
+# Evitar warnings de tokenizers
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def main():
     """
-    Este programa tiene dos modos de uso principales:
-    1. `build_index`: Genera un índice FAISS a partir de los CVs guardados en la base de datos.
-    2. `query`: Permite buscar en el índice los CVs más similares a una descripción de puesto ingresada.
-    
-    Ejemplo de uso:
-        python main.py build_index  # Para crear el índice.
-        python main.py query        # Para realizar consultas en el índice.
+    Modos de uso:
+      1) build_index
+         - Construye el índice FAISS a partir de la tabla `cv` en tu DB.
 
-    Las pruebas las haremos con la siguiente descripción de puesto:
+      2) query
+         - Pide por consola la descripción del puesto y busca los 5 CVs más similares (RAG).
+         - Solo muestra resultados, sin DeepSeek-r1.
 
-        - "Desarrollador de software con experiencia en Python y Machine Learning."
-
-        - "This is a job description for a Software Engineer. The role requires Python, 
-            Java, and database management skills. A minimum of 3 years of experience is needed."
-
-        - "Buscamos un diseñador de interiores creativo con experiencia en proyectos residenciales y comerciales. 
-            Será responsable de diseñar espacios funcionales y estéticos, seleccionar materiales, mobiliario y coordinar con
-            proveedores y contratistas. Se requiere manejo avanzado de AutoCAD, SketchUp, Photoshop y software de renderizado 
-            (V-Ray o similar), además de habilidades en gestión de proyectos, comunicación con clientes y atención al detalle."
+      3) rag_deepseek
+         - Recupera los 20 CVs más relevantes (RAG).
+         - Llama a DeepSeek-r1 para refinar/rerank y muestra un ranking final.
     """
-    if len(sys.argv) < 2:  # Verificamos si el usuario ingresó el modo como argumento.
-        print("Modo de uso: python main.py [build_index | query]")
+
+    if len(sys.argv) < 2:
+        print("Uso: python main.py [build_index | query | rag_deepseek]")
         return
 
-    mode = sys.argv[1].lower()  # Obtenemos el modo del argumento ingresado.
+    mode = sys.argv[1].lower()
 
-    # Conectamos a la base de datos para realizar operaciones.
+    # Conexión DB
     conn, cursor = connect_db()
 
     if mode == "build_index":
-        # Este modo crea un índice FAISS a partir de los datos en la base de datos.
-        # Si es necesario, también podemos cargar un CSV antes de construir el índice.
-        # load_dataset_into_db(cursor, "Resume.csv")  # Descomentar si queremos cargar un archivo CSV.
-        # conn.commit()  # Guardamos los cambios en la base de datos.
-
-        # Creamos el índice FAISS desde los datos de la tabla `cv`.
+        # Construir índice
         build_or_load_vector_index(cursor, rebuild=True)
         print("Índice FAISS construido y guardado con éxito.")
 
     elif mode == "query":
-        # En este modo, el programa permite al usuario buscar CVs similares.
-        print("Por favor, ingresa la descripción del puesto. Cuando termines, presiona Enter dos veces:")
+        # 1. Leer descripción
+        print("Por favor, ingresa la descripción del puesto. Enter en blanco para finalizar:")
         lines = []
         while True:
             line = input()
-            if line.strip() == "":  # Si la línea está vacía, terminamos de capturar el texto.
+            if not line.strip():
                 break
             lines.append(line)
-
-        # Unimos las líneas ingresadas en un solo texto.
         job_description = "\n".join(lines).strip()
 
-        if not job_description:  # Si no se ingresó nada, mostramos un mensaje y salimos.
+        if not job_description:
             print("No se ingresó ninguna descripción.")
             close_db(conn)
             return
 
-        # Intentamos cargar el índice FAISS desde el disco.
+        # 2. Cargar índice
         docsearch = build_or_load_vector_index(cursor, rebuild=False)
-        if not docsearch:  # Si el índice no existe, mostramos un error.
-            print("No se pudo cargar ni crear el índice FAISS.")
+        if not docsearch:
+            print("No se pudo cargar o crear el índice.")
             close_db(conn)
             return
 
-        # Realizamos la búsqueda en el índice.
+        # 3. Recuperar top 5
         top_matches = embed_and_search_in_faiss(job_description, docsearch, top_k=5)
-
-        # Mostramos los resultados de la búsqueda.
         print(f"\nSe han recuperado {len(top_matches)} CVs más similares:\n")
-        for i, match in enumerate(top_matches, start=1):
-            metadata = match.metadata  # Metadata del CV.
-            doc_text = match.page_content  # Contenido del CV.
-            score = match.score  # Puntaje de similitud (distancia).
-            cv_id = metadata.get("id")  # ID del CV.
-            cv_cat = metadata.get("category", "")  # Categoría del CV.
-            print(f"==> {i}) CV ID: {cv_id}, Categoría: {cv_cat}, Distancia: {score:.4f}")
-            print(f"    Fragmento del CV:\n{doc_text[:200]}...\n")  # Mostramos un fragmento del CV.
+
+        # 4. Imprimir con estilo
+        for rank, match in enumerate(top_matches, start=1):
+            md = match.metadata
+            text = match.page_content
+            sc = match.score
+            cv_id = md.get("id")
+            cv_cat = md.get("category", "desconocida").upper()
+            snippet = text[:150].replace("\n", " ")
+
+            print(f"========= RANK #{rank} =========")
+            print(f"CV ID:         {cv_id}")
+            print(f"Categoría:     {cv_cat}")
+            print(f"Distancia:     {sc:.4f}")
+            print(f"----- FRAGMENTO CV -----")
+            print(snippet + "...")
+            print("================================\n")
+
+    elif mode == "rag_deepseek":
+        # 1. Leer descripción
+        print("Por favor, ingresa la descripción del puesto. Enter en blanco para finalizar:")
+        lines = []
+        while True:
+            line = input()
+            if not line.strip():
+                break
+            lines.append(line)
+        job_description = "\n".join(lines).strip()
+
+        if not job_description:
+            print("No se ingresó ninguna descripción.")
+            close_db(conn)
+            return
+
+        # 2. Cargar índice
+        print("🔹 Cargando/creando índice FAISS...")
+        docsearch = build_or_load_vector_index(cursor, rebuild=False)
+        if not docsearch:
+            print("❌ No se pudo cargar ni crear el índice FAISS.")
+            close_db(conn)
+            return
+
+        # 3. Recuperar top 20
+        print("🔹 Recuperando los 20 CVs más relevantes...")
+        top_20 = embed_and_search_in_faiss(job_description, docsearch, top_k=20)
+        if not top_20:
+            print("❌ No se encontraron CVs relevantes.")
+            close_db(conn)
+            return
+
+        print(f"\n✅ Se han recuperado {len(top_20)} CVs en la fase RAG.")
+        print("🔹 Enviando CVs a DeepSeek-r1 para refinado...")
+
+        # 4. Re-rank con deepseek
+        final_rank = rerank_with_deepseek(top_20, job_description)
+        print("✅ DeepSeek-r1 completado.")
+
+        # 5. Mostrar ranking final
+        print("\n=== Ranking final refinado con DeepSeek-r1 ===")
+        if not final_rank:
+            print("No se obtuvo un ranking final. Revisa la salida anterior.")
+        else:
+            for pos, item in enumerate(final_rank, start=1):
+                cv_id = item["id"]
+                cat = item["category"].upper()
+                score = item["score"]
+                reasons = item["reasons"]
+                snippet = item["fragment"]
+
+                print(f"\n--- CV RANK #{pos} ---")
+                print(f"ID:     {cv_id}")
+                print(f"CAT:    {cat}")
+                print(f"SCORE:  {score:.2f}")
+                print(f"RAZONES:\n{reasons}")
+                print(f"--- FRAGMENTO ---\n{snippet}...")
+                print("------------------------")
 
     else:
-        # Si el modo ingresado no es válido, mostramos un mensaje de error.
-        print("Opción desconocida. Usa: build_index ó query")
+        print("Opción desconocida. Usa: build_index, query o rag_deepseek.")
 
-    # Cerramos la conexión con la base de datos al final.
     close_db(conn)
 
-# Ejecutamos el programa llamando a la función main.
+
 if __name__ == "__main__":
     main()
