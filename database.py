@@ -37,6 +37,32 @@ def reset_database(db_name="cv_database.db"):
     conn.close()
     connect_db(db_name)
 
+def reset_cv_table(db_name="cv_database.db"):
+    """Elimina la tabla 'cv' si existe y la recrea con la estructura correcta."""
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    
+    cursor.execute("DROP TABLE IF EXISTS cv")  # 🔹 Eliminar la tabla antigua
+    
+    cursor.execute('''
+        CREATE TABLE cv (
+            id INTEGER PRIMARY KEY,
+            nombre TEXT,
+            titulo TEXT,
+            experiencia INTEGER,
+            habilidades TEXT,
+            tecnologias TEXT,
+            ultimo_puesto TEXT,
+            educacion TEXT,
+            resumen TEXT
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    print("✅ Tabla 'cv' reseteada correctamente.")
+
+
 def close_db(conn):
     """Cierra la conexión a la base de datos."""
     conn.close()
