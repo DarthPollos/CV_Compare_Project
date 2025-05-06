@@ -1,12 +1,22 @@
 import os
 from dotenv import load_dotenv
 
-# Cargar variables desde key.env
-dotenv_path = os.path.join(os.path.dirname(__file__), "key.env")
-load_dotenv(dotenv_path)
+# Cargar variables de entorno
+load_dotenv()
 
-# Obtener API Key
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# Configuración de OpenRouter
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+DEEPSEEK_MODEL = "deepseek-chat"  # Modelo actualizado
 
-if not OPENAI_API_KEY:
-    raise ValueError("❌ No se encontró la clave OPENAI_API_KEY en key.env")
+# Configuración de FAISS
+FAISS_INDEX_PATH = "faiss_index"
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+# Configuración de la base de datos
+DB_CONFIG = {
+    "db_name": "cv_database.db",
+    "check_same_thread": False
+}
+
+def get_db_path():
+    return os.path.abspath(DB_CONFIG["db_name"])

@@ -9,11 +9,11 @@ __pycache__/
 # Ignorar archivos de configuración local
 *.env
 
-# Ignorar bases de datos locales (si no deseas subirlas)
+# Ignorar bases de datos locales 
 *.db
 
-# Ignorar configuraciones específicas de IDEs/editores (opcional)
+# Ignorar configuraciones específicas de IDEs/editores 
 .vscode/
 .idea/
 
-Resume.csv
+descripciones.txt

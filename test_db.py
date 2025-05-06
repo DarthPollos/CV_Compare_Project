@@ -1,46 +1,51 @@
 import sqlite3
-import pandas as pd
+import os
 
-# Crear una nueva base de datos de prueba
-conn = sqlite3.connect("test_cv_database.db")
-cursor = conn.cursor()
+DB_PATH = "cv_database.db"
 
-# Crear la tabla de CVs
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS cv (
-        id INTEGER PRIMARY KEY,
-        nombre TEXT,
-        titulo TEXT,
-        experiencia INTEGER,
-        habilidades TEXT,
-        tecnologias TEXT,
-        ultimo_puesto TEXT,
-        educacion TEXT,
-        resumen TEXT
-    )
-''')
+def test_database_connection():
+    print("=== Test de Conexión a la Base de Datos ===")
+    if not os.path.exists(DB_PATH):
+        print(f"❌ La base de datos no existe en la ruta: {DB_PATH}")
+        return
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    print("✅ Conexión exitosa a la base de datos.")
+    conn.close()
 
-# Cargar el CSV
-df = pd.read_csv("candidatos.csv")
+def test_table_structure():
+    print("\n=== Test de Estructura de la Tabla ===")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(cv);")
+    columns = cursor.fetchall()
+    print("Columnas de la tabla 'cv':")
+    for col in columns:
+        print(col)
+    conn.close()
 
-# Insertar los datos en la base de datos de prueba
-for _, row in df.iterrows():
-    cursor.execute("""
-        INSERT INTO cv (id, nombre, titulo, experiencia, habilidades, tecnologias, ultimo_puesto, educacion, resumen) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        row["id"], row["nombre"], row["titulo"], row["experiencia"], 
-        row["habilidades"], row["tecnologias"], row["ultimo_puesto"], 
-        row["educacion"], row["resumen"]
-    ))
+def test_data_retrieval():
+    print("\n=== Test de Recuperación de Datos ===")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, nombre, COALESCE(resumen, '') AS resumen FROM cv")
+    rows = cursor.fetchall()
+    print(f"Número de filas recuperadas: {len(rows)}")
 
-conn.commit()
-print("✅ Datos cargados correctamente en la base de datos de prueba.")
+    for i, row in enumerate(rows):
+        print(f"Fila {i}: Longitud -> {len(row)}, Datos -> {row}")
+        if len(row) != 3:
+            print(f"❌ Fila {i} no tiene 3 columnas.")
+        else:
+            print(f"✅ Fila {i} tiene 3 columnas.")
+        
+        for j, value in enumerate(row):
+            if value is None or value == '':
+                print(f"⚠️  Advertencia: Columna {j} en Fila {i} es nula o vacía")
+    conn.close()
 
-# Verificar la inserción
-cursor.execute("SELECT * FROM cv LIMIT 5")
-print("\n🔍 Ejemplo de datos en la BD de prueba:")
-for row in cursor.fetchall():
-    print(row)
-
-conn.close()
+if __name__ == "__main__":
+    test_database_connection()
+    test_table_structure()
+    test_data_retrieval()

@@ -1,0 +1,47 @@
+[
+  {
+    "Posición": 1,
+    "Nombre": "Carmen Mirayo",
+    "ID": "15",
+    "Descripción": "\n                RESUMEN: especialista en recursos humanos con experiencia en atracción de talento y...",
+    "Justificación": "Carmen Mirayo destaca por su amplia experiencia en recursos humanos, habilidades en reclutamiento y gestión del talento, así como por su dominio de varios idiomas clave para la posición.",
+    "Correo": "carmenmirayofernandez@gmail.com",
+    "Teléfono": "+1 305-678-9123"
+  },
+  {
+    "Posición": 2,
+    "Nombre": "Sophie Dubois",
+    "ID": "4",
+    "Descripción": "\n                RESUMEN: profesional de recursos humanos con experiencia en gestión del talento y d...",
+    "Justificación": "Sophie Dubois tiene una sólida experiencia en recursos humanos y gestión del talento, además de contar con habilidades en reclutamiento y formación, siendo bilingüe en francés e inglés.",
+    "Correo": "sophie.dubois@email.com",
+    "Teléfono": "+33 6-7890-1234"
+  },
+  {
+    "Posición": 3,
+    "Nombre": "Laura Fernández",
+    "ID": "19",
+    "Descripción": "\n                RESUMEN: psicóloga organizacional con experiencia en gestión del talento y estrateg...",
+    "Justificación": "Laura Fernández, psicóloga organizacional, aporta experiencia en gestión del talento y clima organizacional, con conocimientos en recursos humanos y coaching, siendo bilingüe en español e inglés.",
+    "Correo": "laura.fernandez@email.com",
+    "Teléfono": "+34 645-789-123"
+  },
+  {
+    "Posición": 4,
+    "Nombre": "Sophie Lambert",
+    "ID": "33",
+    "Descripción": "\n                RESUMEN: especialista en ventas con experiencia en estrategias de crecimiento comer...",
+    "Justificación": "Sophie Lambert, especialista en ventas, posee habilidades en negociación y gestión comercial, con dominio de varios idiomas relevantes para el perfil, como francés e inglés.",
+    "Correo": "sophie.lambert@email.com",
+    "Teléfono": "+33 6-7890-2345"
+  },
+  {
+    "Posición": 5,
+    "Nombre": "Pierre Moreau",
+    "ID": "70",
+    "Descripción": "\n                RESUMEN: médico generalista con experiencia en atención integral y manejo de urgenc...",
+    "Justificación": "Pierre Moreau, médico generalista, cuenta con experiencia en atención integral y urgencias, siendo bilingüe en francés e inglés, lo que le otorga una ventaja en entornos multiculturales.",
+    "Correo": "pierre.moreau@email.com",
+    "Teléfono": "+33 6-7890-1234"
+  }
+]

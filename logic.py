@@ -9,10 +9,11 @@ from utils import (
 
 def buscar_cvs(job_description, use_mll):
     """Función para buscar y evaluar CVs con RAG y opcionalmente con MLL."""
-    conn, cursor = connect_db(db_name="test_cv_database.db")
+    conn, cursor = connect_db(db_name="cv_database.db")
+
 
     # Cargar índice FAISS
-    docsearch = build_or_load_vector_index(cursor, rebuild=False)
+    docsearch = build_or_load_vector_index(cursor, rebuild=True)
 
     if not docsearch:
         close_db(conn)

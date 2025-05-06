@@ -12,19 +12,18 @@ def main_interface():
         font-family: "Arial", sans-serif;
     }
 
- #welcome-container {
-    width: 100%;
-    height: 100vh;
-    background: url("./background.png") no-repeat center center/cover;
-    background-color: #04244d; /* Color de respaldo si la imagen no carga */
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    text-align: center;
-    transition: opacity 0.5s ease-in-out, visibility 0.5s ease-in-out;
-}
-
+    #welcome-container {
+        width: 100%;
+        height: 100vh;
+        background: url("./background.png") no-repeat center center/cover;
+        background-color: #04244d; /* Color de respaldo si la imagen no carga */
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        transition: opacity 0.5s ease-in-out, visibility 0.5s ease-in-out;
+    }
 
     #welcome-content {
         max-width: 600px;
@@ -44,7 +43,6 @@ def main_interface():
         color: #d0d0d0;
     }
 
-    /* ====== PESTAÑA BÚSQUEDA ====== */
     #search-container {
         width: 100%;
         min-height: 100vh;
@@ -53,7 +51,7 @@ def main_interface():
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: flex-start; /* Ajusta según tu gusto */
+        justify-content: flex-start;
         padding: 20px;
         transition: opacity 0.5s ease-in-out, visibility 0.5s ease-in-out;
     }
@@ -75,18 +73,11 @@ def main_interface():
     }
 
     #job-input {
-    background: #1c3b5a;
-    color: white; /* Para que el texto sea visible */
-    border: 2px solid #ff8c00;
-    padding: 10px;
-    border-radius: 8px;
-}
-
-
-    #search-toggle {
-        display: flex;
-        justify-content: center;
-        gap: 15px;
+        background: #1c3b5a;
+        color: white;
+        border: 2px solid #ff8c00;
+        padding: 10px;
+        border-radius: 8px;
     }
 
     #search-button {
@@ -106,7 +97,7 @@ def main_interface():
     }
 
     #cancel-button {
-        background-color: #d9534f !important; /* Rojo */
+        background-color: #d9534f !important;
         color: white !important;
         font-size: 1.2em;
         padding: 12px 24px;
@@ -154,12 +145,22 @@ def main_interface():
                             <p>Encuentra los candidatos ideales con inteligencia artificial.</p>
                         </div>
                     """)
+                    # ✅ Botón para ir a la pestaña de Búsqueda
+                    welcome_button = gr.Button("Comenzar búsqueda", elem_id="search-button")
 
             # ---- Pestaña 1: Búsqueda ----
             with gr.Tab("Búsqueda"):
                 with gr.Column(elem_id="search-container"):
+                    # ✅ Incluye la interfaz de búsqueda aquí
                     search_interface()
                     cancel_button = gr.Button("Cancelar búsqueda", elem_id="cancel-button")
+
+        # ✅ Callback para "Comenzar búsqueda"
+        welcome_button.click(
+            fn=switch_to_search,  # Función Python que cambia la pestaña
+            inputs=[],
+            outputs=main_tabs     # Actualiza el objeto Tabs
+        )
 
         # ✅ Callback para "Cancelar búsqueda"
         cancel_button.click(
@@ -168,4 +169,32 @@ def main_interface():
             outputs=main_tabs     # Actualiza el objeto Tabs
         )
 
+    with gr.Blocks() as interface:
+        gr.Markdown("## 🔍 HireLens - Plataforma de Reclutamiento")
+
+    with gr.Row():
+        start_search = gr.Button("🔎 Buscar Candidatos")
+        open_chat = gr.Button("💬 Agente de Reclutamiento")
+
+    open_chat.click(
+        fn=lambda: "http://127.0.0.1:7861",  # URL del chat
+        inputs=[],
+        outputs=[]
+    )
+
+    from interface_chat import chat_interface
+
+    with gr.Tabs() as main_tabs:
+        with gr.Tab("🔍 Búsqueda"):
+            search_interface()
+
+    with gr.Tab("💬 Agente Conversacional"):
+        chat_interface()
+
+
+
     return interface
+
+if __name__ == "__main__":
+    app = main_interface()
+    app.launch(server_name="0.0.0.0", server_port=7860)

@@ -1,232 +1,395 @@
 import os
-import requests
+import asyncio
+import aiohttp
 import json
-import re
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.docstore.document import Document
 from collections import namedtuple
-
-# Import de tu módulo de DB, ajusta si el path es diferente
 from database import connect_db, close_db
+from dotenv import load_dotenv
+load_dotenv("key.env", override=True)
+import re
+
+# Configuración global
+DEEPSEEK_MODEL = "deepseek/deepseek-r1:free"
+FAISS_INDEX_PATH = "faiss_index"
+EMBEDDING_MODEL = "sentence-transformers/distiluse-base-multilingual-cased-v2"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL = "gpt-3.5-turbo"
+#OPENAI_MODEL = "gpt-4"
 
 
-###############################################################################
-# 1. Verificar estado de LLaMA
-###############################################################################
-def check_llama_status():
-    """Verifica si Llama 3.1 está disponible en Ollama sin imprimir mensajes innecesarios."""
+# =============================================================================
+# Función para verificar la base de datos.
+# =============================================================================
+def verificar_base_datos():
+    db_path = os.path.abspath('cv_database.db')
+    existe = os.path.exists(db_path)
+    print(f"=== Verificación de Base de Datos ===")
+    print(f"Ruta: {db_path}")
+    print(f"¿Existe?: {existe}")
+    print("======================================")
+    return existe
+
+# =============================================================================
+# Función para construir o cargar el índice FAISS.
+# =============================================================================
+def build_or_load_vector_index(conn, cursor, rebuild=True, batch_size=10):
+    if rebuild or not os.path.exists(os.path.join(FAISS_INDEX_PATH, "index.faiss")):
+        print("🔨 Creando nuevo índice FAISS...")
+        # Ajustamos la consulta para incluir la columna 'habilidades'
+        cursor.execute("""
+            SELECT id, nombre, COALESCE(resumen, ''), email, telefono,
+            COALESCE(idiomas, ''), COALESCE(habilidades, ''),
+            COALESCE(experiencia, ''), COALESCE(ubicacion, ''), COALESCE(educacion, '')
+            FROM cv
+        """)
+
+
+        documentos = []
+        rows = cursor.fetchall()
+        for cv_id, nombre, resumen, email, telefono, idiomas, habilidades, experiencia, ubicacion, educacion in rows:
+            if resumen.strip() == "":
+                print(f"⚠️ El resumen está vacío para el CV de {nombre} (ID: {cv_id})")
+            
+            page_content = f"""
+                RESUMEN: {resumen.strip()}
+                IDIOMAS: {idiomas.strip()}
+                HABILIDADES: {habilidades.strip()}
+                EXPERIENCIA: {experiencia.strip()}
+                UBICACIÓN: {ubicacion.strip()}
+                EDUCACIÓN: {educacion.strip()}
+                """
+            metadata = {
+                "id": cv_id,
+                "name": nombre.strip(),
+                "email": email.strip() if email else "",
+                "telefono": telefono.strip() if telefono else "",
+                "idiomas": idiomas.strip() if idiomas else "No disponible",
+                "habilidades": habilidades.strip() if habilidades else "No disponible",
+                "experiencia": experiencia.strip() if experiencia else "No disponible",
+                "ubicacion": ubicacion.strip() if ubicacion else "No disponible",
+                "educacion": educacion.strip() if educacion else "No disponible"
+            }
+
+                
+            # Crear un objeto Document por cada fila
+            doc = Document(page_content=page_content, metadata=metadata)
+            documentos.append(doc)
+
+        print(f"Cantidad de documentos procesados: {len(documentos)}")
+        if not documentos:
+            print("⚠️ No hay documentos válidos para crear el índice.")
+            return None
+
+        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+        indice = None
+
+        # Procesar documentos por lotes (batch_size)
+        for i in range(0, len(documentos), batch_size):
+            batch = documentos[i : i + batch_size]
+            print(f"🔄 Procesando batch {i} a {i + len(batch)}...")
+            if indice is None:
+                indice = FAISS.from_documents(batch, embeddings)
+            else:
+                indice.add_documents(batch)
+
+        os.makedirs(FAISS_INDEX_PATH, exist_ok=True)
+        indice.save_local(FAISS_INDEX_PATH)
+        print(f"Total documentos en el índice: {indice.index.ntotal}")
+        return indice
+
+    else:
+        print("♻️ Cargando índice existente...")
+        return FAISS.load_local(
+            FAISS_INDEX_PATH,
+            HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL),
+            allow_dangerous_deserialization=True
+        )
+
+# =============================================================================
+# Función para realizar búsqueda semántica en FAISS.
+# =============================================================================
+def embed_and_search_in_faiss(query_text, docsearch, top_k=40):
+    resultados_legibles = []
     try:
-        response = requests.get("http://localhost:11434/api/tags", timeout=2)
-        return response.status_code == 200
-    except requests.RequestException:
-        return False
+        resultados = docsearch.similarity_search_with_score(query_text, k=top_k)
+        print(f"Número de resultados devueltos por similarity_search_with_score: {len(resultados)}")
+        for doc, dist in resultados:
+            resultado = {
+                "Nombre": doc.metadata.get('name', 'Sin Nombre').title(),
+                "ID": str(doc.metadata.get('id', 'Desconocido')),
+                "Distancia": round(float(dist), 2),
+                "Descripción": doc.page_content[:100] + "...",
+                "Correo": doc.metadata.get('email', ""),
+                "Teléfono": doc.metadata.get('telefono', ""),
+                "Idiomas": doc.metadata.get('idiomas', "No disponible"),
+                "Habilidades": doc.metadata.get('habilidades', "No disponible")
+            }
+            resultados_legibles.append(resultado)
+        print(f"🔎 Resultado FAISS (formateado): {resultado}")
+        print("\n=== Resultado Final embed_and_search_in_faiss (formateado) ===")
+        print(resultados_legibles)
+        print("Tipo de datos:", type(resultados_legibles))
+        print("==========================================\n")
+        return resultados_legibles
+    except Exception as e:
+        print(f"Error en FAISS: {str(e)}")
+        return resultados_legibles
 
+# =============================================================================
+# Función de reordenamiento para RAG + LLM.
+# Toma los 20 resultados de FAISS y usa el LLM para reordenarlos.
+# =============================================================================
+async def rerank(candidatos, descripcion_puesto):
+    def limpiar_variables_globales():
+        global ranking_final, resultados_formateados
+        ranking_final = []
+        resultados_formateados = []
+    limpiar_variables_globales()
 
-###############################################################################
-# 2. Re-rank con LLaMA 3.1
-###############################################################################
-def rerank_with_llama(top_docs, job_description):
-    """
-    Usa Llama 3.1 para reordenar los CVs recuperados.
-    Solo se envían los CVs ya filtrados y limitados en número para no sobrecargar al LLM.
-    """
-    if not check_llama_status():
-        print("❌ No hay conexión con Llama 3.1.")
-        return []
+    # Construir la lista de CVs con el formato adecuado
+    resumenes = []
+    valid_ids = ", ".join(str(c['ID']) for c in candidatos)
+    
+    for idx, c in enumerate(candidatos, start=1):
+        # Obtenemos idiomas y habilidades de la metadata
+        idiomas = c.get('Idiomas', 'No disponible')
+        habilidades = c.get('Habilidades', 'No disponible')
+        
+        resumen = (
+            f"{idx}. ID: {c['ID']}, "
+            f"Nombre: {c['Nombre']}\n"
+            f"Descripción: {c['Descripción']}\n"
+            f"Idiomas: {idiomas}\n"
+            f"Habilidades: {habilidades}\n"
+            f"Experiencia: {c.get('experiencia', 'No disponible')}\n"
+            f"Ubicación: {c.get('ubicacion', 'No disponible')}\n"
+            f"Educación: {c.get('educacion', 'No disponible')}\n"
+            f"Correo: {c.get('Correo', '')}\n"
+            f"Teléfono: {c.get('Teléfono', '')}\n"
+        )
 
-    docs_info = "\n".join(
-        [f"- ID: {doc['id']}, Nombre: {doc['name']}, Extracto: {doc['content']}" for doc in top_docs]
-    )
+        resumenes.append(resumen)
+    
+    resumen_texto = "\n".join(resumenes)
 
     prompt = f"""
-    Eres un experto en selección de personal. Se te proporciona una descripción de puesto y varios CVs.
-    Evalúa cada candidato y asigna un puntaje de 1 a 100.
+Eres un experto(a) en reclutamiento y selección de personal para todo tipo de roles.
 
-    **Descripción del puesto:**
-    {job_description}
+Puesto: {descripcion_puesto}
 
-    **CVs analizados:**
-    {docs_info}
+Utiliza **exclusivamente** los siguientes candidatos, manteniendo intactos sus IDs. Si alguno no 
+cumple los criterios de la descripcion no lo añadas en el ranking.
+Los únicos IDs válidos son: {valid_ids}.
 
-    Devuelve la respuesta en formato JSON con la siguiente estructura:
-    [
-        {{"id": "ID_CV", "name": "Nombre del candidato", "score": 1-100, "reasons": "Razón breve"}},
-        ...
-    ]
+{resumen_texto}
+
+Criterios clave de evaluación (ejemplos):
+- Años de experiencia relevantes.
+- Competencias técnicas y/o especializadas.
+- Habilidades blandas o de liderazgo (si aplican).
+- Idiomas (si son necesarios).
+- Ubicación y disponibilidad geográfica (si corresponde).
+
+Se presentan 20 CVs resumidos.
+Objetivo:
+Selecciona únicamente a los 5 candidatos que mejor cumplan los criterios anteriores.
+Ordénalos del 1 al 5 en un ranking y **no modifiques los IDs**; utiliza exactamente los que se han proporcionado.
+Justifica brevemente tu elección para cada candidato, mencionando años de experiencia, habilidades, idiomas, etc.
+
+**Devuelve la respuesta en formato JSON**, con la siguiente estructura:
+[
+    {{"ID": "151", "Justificación": "Texto de justificación"}},
+    {{...}},
+    ...
+
+]
     """
+    
+    print("=== Prompt enviado al LLM ===")
+    print(prompt)
+    ranking_text = await generar_respuesta(prompt)
 
-    response = requests.post(
-        "http://localhost:11434/api/chat",
-        json={"model": "llama3", "messages": [{"role": "user", "content": prompt}], "stream": False}
+    # Limpiar la respuesta para remover delimitadores de código si existen
+    ranking_text = ranking_text.strip()
+    if ranking_text.startswith("```"):
+        # Remover la primera línea (delimitador) y la última línea si es también un delimitador
+        ranking_text = "\n".join(ranking_text.splitlines()[1:])
+        if ranking_text.endswith("```"):
+            ranking_text = "\n".join(ranking_text.splitlines()[:-1])
+    ranking_text = ranking_text.strip()
+
+    # Procesar la respuesta JSON recibida
+    try:
+        ranking_json = json.loads(ranking_text)
+    except json.JSONDecodeError as e:
+        print("❌ Error al decodificar JSON:", e)
+        return [{"Error": "No se pudo procesar la respuesta del LLM. Verifica el formato JSON."}]
+    
+    # Asociar cada entrada JSON al candidato correspondiente
+    ranking_final = []
+    for item in ranking_json:
+        current_id = str(item.get("ID", "")).strip()
+        justificacion = item.get("Justificación", "").strip()
+        candidato = next((c for c in candidatos if str(c["ID"]).strip() == current_id), None)
+        if candidato:
+            candidato["Justificación"] = justificacion
+            ranking_final.append(candidato)
+        else:
+            print(f"⚠️ No se encontró candidato con ID: {current_id}")
+    
+    if not ranking_final:
+        print("⚠️ No se encontraron coincidencias de IDs.")
+        return [{"Error": "No se encontraron coincidencias. Revisa el formato de los IDs o la lógica de matching."}]
+    
+    # Formatear los resultados en un formato estructurado para la interfaz gráfica
+    resultados_formateados = []
+    for idx, candidato in enumerate(ranking_final, start=1):
+        resultados_formateados.append({
+            "Posición": idx,
+            "Nombre": candidato.get('Nombre', 'Sin Nombre'),
+            "ID": candidato.get('ID', 'Desconocido'),
+            "Descripción": candidato.get('Descripción', 'Sin Contenido'),
+            "Justificación": candidato.get('Justificación', 'Sin Justificación'),
+            "Correo": candidato.get('Correo', 'No disponible'),
+            "Teléfono": candidato.get('Teléfono', 'No disponible')
+        })
+    
+    return resultados_formateados
+
+
+
+# =============================================================================
+# Función principal de búsqueda.
+# =============================================================================
+async def buscar_cvs(descripcion_puesto, option_toggle):
+    def limpiar_variables_globales():
+        global ranking_final, resultados_formateados
+        ranking_final = []
+        resultados_formateados = []
+
+    limpiar_variables_globales()
+    verificar_base_datos()
+    resultados = []
+    try:
+        conn, cursor = connect_db(db_name="cv_database.db")
+        if not conn:
+            print("❌ Error: No se pudo conectar a la base de datos.")
+            return []
+        indice = build_or_load_vector_index(conn, cursor)
+        if not indice:
+            print("⚠️ Advertencia: No se pudo construir/cargar el índice FAISS.")
+            return []
+        candidatos = embed_and_search_in_faiss(descripcion_puesto, indice, top_k=40)
+        print(f"🔍 Se encontraron {len(candidatos)} candidatos con FAISS.")
+        if not candidatos:
+            print("⚠️ Advertencia: No se encontraron candidatos en la búsqueda semántica.")
+            return []
+        print(f"Valor de option_toggle: '{option_toggle}'")
+        if option_toggle == "🤖 RAG + LLM (IA Avanzada)":
+            print("🔄 Seleccionando y rankeando los mejores candidatos con el LLM...")
+            ranking = await rerank(candidatos, descripcion_puesto)
+            resultados = ranking
+        else:
+            print("✅ Resultados obtenidos con Solo RAG.")
+            resultados = candidatos or []
+    except Exception as e:
+        print(f"❌ Error crítico en buscar_cvs: {str(e)}")
+        resultados = []
+    finally:
+        if conn:
+            close_db(conn)
+
+    print("\n=== Resultado Final buscar_cvs ===")
+    print(resultados)
+    print("Tipo de datos:", type(resultados))
+    print("==========================================\n")
+    return resultados
+
+# =============================================================================
+# Función para mostrar resultados en formato de texto.
+# =============================================================================
+def mostrar_resultados_texto(resultados):
+    if isinstance(resultados, list):
+        if len(resultados) == 1 and "Error" in resultados[0]:
+            return resultados[0]["Error"]
+        texto = ""
+        for match in resultados:
+            texto += (
+                f"Posición: {match.get('Posición', 'N/A')}\n"
+                f"Nombre: {match.get('Nombre', 'Sin Nombre')}\n"
+                f"ID: {match.get('ID', 'Desconocido')}\n"
+                f"Descripción: {match.get('Descripción', 'Sin Contenido')}\n"
+                f"Justificación: {match.get('Justificación', 'Sin Justificación')}\n"
+                "-------------------------\n"
+            )
+        return texto
+    elif isinstance(resultados, str):
+        return resultados
+    else:
+        return "Error interno: el formato de resultados no es válido."
+
+# =============================================================================
+# Función para generar respuesta de OpenAI de forma asíncrona.
+# =============================================================================
+async def generar_respuesta(prompt):
+    if not OPENAI_API_KEY:
+        raise ValueError("❌ Error: La API Key de OpenAI no está configurada.")
+    api_key = OPENAI_API_KEY.strip()
+
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": OPENAI_MODEL,
+        "messages": [
+            {"role": "system", "content": "Eres un experto en selección de personal."},
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 800,
+        "temperature": 0.5
+    }
+    print("=== Solicitud a la API ===")
+    print(json.dumps(payload, indent=4))
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=payload) as response:
+            response_text = await response.text()
+            if response.status == 200:
+                response_json = await response.json()
+                content = response_json['choices'][0]['message']['content']
+                print("=== Respuesta de la API ===")
+                print(json.dumps(response_json, indent=4))
+                return content.strip()
+            else:
+                try:
+                    error_json = await response.json()
+                except Exception:
+                    error_json = {"error": response_text}
+                print(f"❌ Error en OpenAI: {json.dumps(error_json, indent=4)}")
+                return f"Error en la API: {json.dumps(error_json, indent=4)}"
+
+# =============================================================================
+# Bloque principal (para pruebas locales)
+# =============================================================================
+async def main():
+    modo = "🤖 RAG + LLM (IA Avanzada)"
+    resultados = await buscar_cvs(
+        descripcion_puesto="Desarrollador Python con experiencia en machine learning",
+        option_toggle=modo
     )
 
-    if response.status_code == 200:
-        try:
-            response_json = response.json()
-            content = response_json.get("message", {}).get("content", "")
-
-            # Extraer solo el JSON dentro de la respuesta
-            match = re.search(r"\[.*\]", content, re.DOTALL)
-            if match:
-                return json.loads(match.group(0))  # Devuelve una lista de dicts
-            else:
-                print("❌ No se encontró JSON válido en la respuesta de Llama 3.")
-                print("🔍 Respuesta obtenida:", content)
-                return []
-        except json.JSONDecodeError:
-            print("❌ Error al convertir la respuesta de Llama 3 en JSON.")
-            print("🔍 Respuesta obtenida:", response.text)
-            return []
+    if isinstance(resultados, list):
+        for res in resultados:
+            print(f"ID: {res.get('ID', 'Desconocido')} | Justificación: {res.get('Justificación', 'N/A')}")
     else:
-        print(f"❌ Error en la respuesta de Llama 3: {response.text}")
-        return []
+        print("Ranking obtenido:")
+        print(resultados)
 
-
-###############################################################################
-# 3. Construir o cargar el índice FAISS
-###############################################################################
-# -- Mantenemos esta función casi igual, pero podemos reutilizar embedding y docsearch
-#   si queremos todavía más optimización.
-def build_or_load_vector_index(cursor, rebuild=False):
-    """Construye o carga un índice FAISS."""
-    index_path = "faiss_index"
-
-    # Evita reconstruir el índice si ya existe y no se pide explícitamente
-    if not rebuild and os.path.exists(index_path):
-        print("✅ Cargando índice FAISS existente desde disco...")
-        embedding = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        return FAISS.load_local(index_path, embedding, allow_dangerous_deserialization=True)
-
-    print("🔹 Creando un nuevo índice FAISS con todos los CVs...")
-    cursor.execute("SELECT id, resumen, titulo FROM cv")
-    rows = cursor.fetchall()
-
-    if not rows:
-        print("❌ No hay CVs en la base de datos.")
-        return None
-
-    documents = [
-        Document(page_content=row[1], metadata={"id": row[0], "category": row[2]}) 
-        for row in rows
-    ]
-    embedding = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    docsearch = FAISS.from_documents(documents, embedding)
-    os.makedirs(index_path, exist_ok=True)
-    docsearch.save_local(index_path)
-    return docsearch
-
-
-###############################################################################
-# 4. Búsqueda en FAISS
-###############################################################################
-def embed_and_search_in_faiss(query_text, docsearch, top_k=10):
-    """
-    Busca los documentos más similares en FAISS con un top_k un poco más grande,
-    para luego filtrar manualmente.
-    """
-    results = docsearch.similarity_search_with_score(query_text, k=top_k)
-    # results = [(Document, score), ...]
-    # Empaquetamos con namedtuple para mayor legibilidad
-    Match = namedtuple("Match", ["page_content", "metadata", "score"])
-    return [Match(doc.page_content, doc.metadata, dist) for doc, dist in results]
-
-
-###############################################################################
-# 5. Filtro previo antes de re-rank
-###############################################################################
-def filter_top_matches(top_matches, distance_threshold=0.7, max_pass=5):
-    """
-    Filtra los resultados con un umbral de distancia (mientras más bajo, mayor similitud).
-    Luego selecciona hasta `max_pass` CVs.
-    
-    Ajusta 'distance_threshold' a conveniencia en función de las distancias de tu FAISS.
-    """
-    # 1. Filtra por umbral
-    filtered = [m for m in top_matches if m.score < distance_threshold]
-    
-    # 2. Ordena por score ascendente (mejor similitud primero)
-    filtered.sort(key=lambda x: x.score)
-    
-    # 3. Toma un máximo de max_pass
-    return filtered[:max_pass]
-
-
-###############################################################################
-# 6. Función principal para buscar CVs
-###############################################################################
-def buscar_cvs(job_description, option):
-    """
-    1) Conecta a DB, carga o crea el índice FAISS.
-    2) Busca un top_k mayor (por ej. 10).
-    3) Filtra con un umbral y reduce a 'max_pass' (por defecto 5).
-    4) Envía SOLO esos CVs filtrados al rerank con LLaMA (si corresponde).
-    5) Devuelve un texto con los resultados.
-    """
-
-    conn, cursor = connect_db(db_name="test_cv_database.db")
-
-    docsearch = build_or_load_vector_index(cursor, rebuild=False)
-    if not docsearch:
-        close_db(conn)
-        return "❌ No se pudo cargar el índice FAISS."
-
-    # 1. Búsqueda inicial con top_k=10 (por ejemplo)
-    top_matches = embed_and_search_in_faiss(job_description, docsearch, top_k=10)
-
-    if not top_matches:
-        close_db(conn)
-        return "❌ No se encontraron CVs relevantes."
-
-    # 2. Filtrado previo
-    #    Ajusta 'distance_threshold' si ves que pocos o demasiados CVs pasan el filtro
-    filtered_matches = filter_top_matches(top_matches, distance_threshold=0.7, max_pass=5)
-    if not filtered_matches:
-        close_db(conn)
-        return "❌ Tras el filtrado, no se encontraron CVs suficientemente cercanos."
-
-    # 3. Formatea los CVs filtrados para LLaMA
-    formatted_matches = [
-        {
-            "id": match.metadata.get("id", "Desconocido"),
-            "name": match.metadata.get("Título", "Sin Nombre"),
-            # Reducimos contenido a 200 chars para no saturar el prompt
-            "content": match.page_content[:200]
-        }
-        for match in filtered_matches
-    ]
-
-    # 4. Re-rank con LLaMA (si la opción es RAG + MLL)
-    if option == "🤖 RAG + MLL (IA Avanzada)" and check_llama_status():
-        final_rank = rerank_with_llama(formatted_matches, job_description)
-    else:
-        # Si no usamos LLaMA, sólo devolvemos el orden de similitud
-        # Podríamos asignar un "score" manual basado en la distancia
-        final_rank = []
-        for m in filtered_matches:
-            final_rank.append({
-                "id": m.metadata.get("id", "Desconocido"),
-                "name": m.metadata.get("Título", "Sin Nombre"),
-                # Podríamos voltear la distancia (score = 1-dist) sólo para referencia
-                "score": round(1 - m.score, 2),
-                "reasons": "Ranking basado en similitud (sin LLaMA)."
-            })
-
-    close_db(conn)
-
-    # 5. Construye el string de resultados
-    result_text = "=== Resultados ===\n\n"
-    for i, item in enumerate(final_rank, start=1):
-        cv_id = item.get("id", "Desconocido")
-        name = item.get("name", "Sin Nombre")
-        score = item.get("score", 0)
-        reasons = item.get("reasons", "No se proporcionaron razones.")
-
-        result_text += f"#{i} CV ID: {cv_id} | Nombre: {name}\n"
-        if option == "🤖 RAG + MLL (IA Avanzada)":
-            result_text += f"Puntuación Llama 3: {score}\n"
-        else:
-            result_text += f"Puntuación aproximada (similitud): {score}\n"
-        result_text += f"Razones:\n{reasons}\n\n"
-
-    return result_text
+if __name__ == "__main__":
+    asyncio.run(main())
