@@ -1,74 +1,115 @@
-# CV_Compare_Project
+# 🤖 Sistema de Selección de Candidatos con RAG, FAISS, LLM y Envío Inteligente de Correos
 
-Este proyecto tiene como objetivo comparar currículums (CVs) en una base de datos y encontrar los más relevantes para una descripción de puesto proporcionada por el usuario. Utiliza técnicas avanzadas como embeddings y el motor de búsqueda FAISS para medir la similitud entre los textos.
+Este proyecto implementa una plataforma inteligente para la **evaluación y contacto automatizado de candidatos**. Usa recuperación aumentada con generación (RAG), embeddings semánticos y modelos LLM para analizar currículums, rankear candidatos y facilitar la comunicación mediante un agente conversacional y envíos de correos personalizados.
 
-¿Qué hace este proyecto?
+## 🧠 ¿Qué hace este sistema?
 
-Construcción del índice FAISS:
+* 🔍 Procesa currículums en texto estructurado y los guarda en SQLite.
+* 📌 Genera embeddings (Hugging Face) y los indexa en FAISS.
+* 🧠 Busca y **rankea automáticamente** candidatos con GPT-4.1-nano o Llama 3.
+* 🤖 Incorpora un **agente de IA** para consultas sobre los candidatos finalistas.
+* 📤 Genera y envía **correos profesionales personalizados** (con validación vía HumanLayer).
+* 🖥️ Cuenta con una **interfaz gráfica multicomponente** mediante Gradio.
 
-Convierte los CVs almacenados en una base de datos en vectores de texto (usando HuggingFaceEmbeddings).
-Crea un índice FAISS para hacer búsquedas rápidas y eficientes.
+## 📂 Estructura del proyecto
 
-Búsqueda de CVs relevantes:
-Acepta una descripción de puesto ingresada por el usuario.
-Encuentra los CVs más relevantes basados en la similitud semántica.
+```
+.
+├── Base_datos_final.txt         # Fuente inicial de CVs en texto plano
+├── cv_database.db               # Base de datos SQLite con la información procesada
+├── faiss_index/                 # Carpeta con el índice vectorial FAISS
+├── candidatos.json              # Lista de candidatos seleccionados
+├── utils.py                     # Funciones de embeddings, búsqueda, ranking y LLM
+├── search_ui.py                 # Lógica de búsqueda y ranking (FAISS + GPT)
+├── send_email.py                # Sistema de generación y envío de correos
+├── interface_chat.py            # Agente conversacional (Q&A sobre los candidatos)
+├── main.py                      # Interfaz Gradio principal
+├── chat_agent.py                # Agente de IA para interacción libre con múltiples candidatos
+├── load_txt_to_db.py            # Script de carga inicial de CVs a SQLite
+├── config.py, .env              # Variables de entorno (claves, correo, modelos)
+```
 
-Nueva funcionalidad con técnica RAG:
-La rama rag_integration implementa una técnica mejorada llamada Retrieval-Augmented Generation (RAG), que combina recuperación de datos y generación de texto.
+## 🧰 Requisitos
 
-Estructura del proyecto
+* Python 3.9+
+* `.env` con variables de configuración:
 
-main.py:
-Archivo principal para interactuar con el proyecto.
-Permite crear el índice (build_index) o realizar consultas (query).
+```env
+OPENAI_API_KEY=tu_api_key_openai
+OPENROUTER_API_KEY=tu_api_key_openrouter
+SMTP_FROM_EMAIL=remitente@dominio.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=usuario@gmail.com
+SMTP_PASSWORD=tu_contraseña
+HUMANLAYER_API_KEY=tu_api_key_humanlayer
+```
 
-utils.py:
-Contiene funciones auxiliares para manejar la base de datos, construir/cargar el índice FAISS y realizar búsquedas.
+Instala dependencias:
 
-Base de datos:
-Almacena los CVs en una tabla con las columnas: id, resume_str (texto del CV) y category (categoría del CV).
+```bash
+pip install -r paquetes.txt
+```
 
+## 🚀 Cómo funciona
 
-Requisitos
+### Fase 1: Carga y procesamiento de CVs
 
-Antes de usar el proyecto, asegúrate de tener instalados los siguientes paquetes:
+```bash
+python load_txt_to_db.py
+```
 
-Python 3.8+
-FAISS: Para construir y gestionar el índice de búsqueda.
-LangChain Community: Para embeddings y manejo de índices.
-Pandas: Para manipular datos del CSV.
-SQLite3: Base de datos para almacenar los CVs.
+Los datos del archivo `Base_datos_final.txt` se limpian y almacenan en SQLite.
 
-Instala las dependencias con:
-pip install langchain-community pandas faiss-cpu
+### Fase 2: Búsqueda y ranking inteligente
 
+Ejecuta la app:
 
-Estructura de la base de datos
-La tabla cv debe contener las siguientes columnas:
+```bash
+python main.py
+```
 
-id: Identificador único del CV.
-resume_str: Texto del CV (el contenido completo).
-category: Categoría o sector del CV (ej. "Diseño", "Tecnología").
+Abre [http://localhost:7861](http://localhost:7861) y accede a:
 
+* **Buscar candidatos**: introduce la descripción del puesto.
+* **Agente de reclutamiento**: chatea con la IA para preguntar por idiomas, experiencia, habilidades, etc.
+* **Enviar correos**: genera correos profesionales, que serán validados manualmente por HumanLayer antes del envío.
 
-¿Cómo empezar a usar el proyecto?
+### Fase 3: Interacción avanzada con el agente de IA
 
-Crear el índice FAISS:
+El agente:
 
-Asegúrate de que la base de datos esté configurada y contenga CVs en la tabla cv.
-Ejecuta el siguiente comando:
-python main.py build_index
-Esto generará un índice en la carpeta faiss_index/.
+* Procesa consultas como:
+  *“¿Qué idiomas hablan los mejores candidatos?”*
+  *“¿Cuáles tienen experiencia en Python y están en Madrid?”*
 
-Buscar CVs relevantes:
+* Si el usuario escribe:
+  *“Envía un correo para la entrevista del viernes a las 10h”*
+  → se redacta y lanza automáticamente un correo por candidato con HumanLayer para validación.
 
-Ingresa la descripción del puesto cuando se te solicite, después de este comando:
-python main.py query
-[Solicita descripción]
+## 🤖 Modelos utilizados
 
+* **Embeddings**: `distiluse-base-multilingual-cased-v2`
+* **LLM**:
 
+  * `gpt-4.1-nano` (OpenAI API)
+  * Opción local: `Llama 3.1` (integración experimental)
+* **RAG**: Vector search + rerank con LLM
+* **Correo inteligente**: `aiosmtplib` + HumanLayer + `EmailMessage`
 
+## 🔐 Seguridad
 
+* El archivo `.env` **nunca debe subirse a Git**.
+* Todos los correos pasan por aprobación vía HumanLayer.
+* Se pueden consultar y auditar las solicitudes recientes desde la interfaz.
 
+## 🧪 Próximas mejoras
 
+* Extracción automática de datos desde PDFs o LinkedIn.
+* Soporte para múltiples perfiles de búsqueda simultáneamente.
+* Métricas de comparación entre candidatos con visualización gráfica.
+
+## 📄 Licencia
+
+MIT License. Uso libre para proyectos académicos, personales o de investigación.
 
