@@ -87,6 +87,20 @@ El agente:
   *“Envía un correo para la entrevista del viernes a las 10h”*
   → se redacta y lanza automáticamente un correo por candidato con HumanLayer para validación.
 
+
+### Fase 4: Generación y envío de correos con aprobación
+
+El sistema permite redactar correos individualizados mediante IA a partir de una consulta en lenguaje natural. El proceso incluye:
+
+* Interpretación automática del propósito del correo (entrevista, descarte, seguimiento, etc.).
+* Generación de texto profesional adaptado al perfil del candidato.
+* Aprobación manual vía HumanLayer antes de su envío.
+* Registro de todas las solicitudes, estados y resultados en un histórico accesible desde la interfaz.
+
+Los correos se pueden previsualizar, editar y enviar directamente desde la pestaña **✉️ Enviar Correo**.
+
+
+
 ## 🤖 Modelos utilizados
 
 * **Embeddings**: `distiluse-base-multilingual-cased-v2`
